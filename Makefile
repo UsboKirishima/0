@@ -33,6 +33,9 @@ receiver: src/receiver.c src/config.c
 	nasm -f elf64 src/read_event.asm -o read_event.o
 	$(CC) $(CFLAGS) -o 0 src/0.c read_event.o src/config.c -I./include $(LDFLAGS)
 
+keygen: keygen/0_gen.c
+	$(CC) -o 0gen keygen/0_gen.c
+
 clean:
 	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) clean
 	rm -f 0 receiver read_event.o
