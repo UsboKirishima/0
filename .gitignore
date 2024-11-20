@@ -1,6 +1,27 @@
 # Prerequisites
 *.d
 
+# Build files
+build/
+bin/
+dist/
+
+# Executables
+0
+receiver
+keylog.txt
+keylogger
+read_event.obj
+# IDE and editor files
+.vscode/
+.idea/
+*~
+.*.swp
+.DS_Store
+
+
+
+
 # Object files
 *.o
 *.ko
