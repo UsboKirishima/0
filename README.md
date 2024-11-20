@@ -12,6 +12,8 @@ An advanced keylogger with both kernel and userspace mode support. Implements st
 - Kernel module hiding
 - Separate receiver with human-readable output
 - Session logging with timestamps
+- JSON configuration support
+- Configurable network settings
 
 ## Requirements
 
@@ -19,28 +21,78 @@ An advanced keylogger with both kernel and userspace mode support. Implements st
 - NASM assembler
 - GCC compiler
 - Make
+- Jansson library (for JSON parsing)
 
 ## Installation
 
-1. Clone the repository:
+1. Install dependencies:
+```bash
+# Debian/Ubuntu
+sudo apt-get install build-essential linux-headers-$(uname -r) nasm libjansson-dev
+
+# Fedora
+sudo dnf install gcc make kernel-devel nasm jansson-devel
+
+# Arch Linux
+sudo pacman -S base-devel linux-headers nasm jansson
+```
+
+2. Clone the repository:
 ```bash
 git clone https://github.com/UsboKirishima/0
 cd 0
 ```
 
-2. Build the project:
-
-To compile everything (recommended):
+3. Build the project:
 ```bash
 make
 ```
 
-Specific components:
-```bash
-make kernel      # Kernel module only
-make userspace   # Userspace logger only
-make receiver    # Receiver only
+## Configuration
+
+The keylogger can be configured using the `config.json` file:
+
+```json
+{
+    "network": {
+        "host": "127.0.0.1",
+        "port": 8888,
+        "protocol": "udp"
+    },
+    "logging": {
+        "enabled": true,
+        "file": "keylog.txt",
+        "format": "[%timestamp%] %key%",
+        "timestamp_format": "%Y-%m-%d %H:%M:%S"
+    },
+    "security": {
+        "stealth_mode": true,
+        "encrypt_logs": false
+    },
+    "debug": {
+        "enabled": false,
+        "verbose": false
+    }
+}
 ```
+
+### Configuration Options
+
+- `network`: Network communication settings
+  - `host`: Target host for sending keystrokes
+  - `port`: UDP port number
+  - `protocol`: Communication protocol (currently only UDP)
+- `logging`: Logging configuration
+  - `enabled`: Enable/disable logging
+  - `file`: Log file path
+  - `format`: Log entry format
+  - `timestamp_format`: Timestamp format string
+- `security`: Security settings
+  - `stealth_mode`: Enable/disable stealth features
+  - `encrypt_logs`: Enable/disable log encryption
+- `debug`: Debug settings
+  - `enabled`: Enable/disable debug output
+  - `verbose`: Enable verbose logging
 
 ## Usage
 

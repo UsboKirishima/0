@@ -1,0 +1,21 @@
+{
+    "network": {
+        "host": "127.0.0.1",
+        "port": 8888,
+        "protocol": "udp"
+    },
+    "logging": {
+        "enabled": true,
+        "file": "keylog.txt",
+        "format": "[%timestamp%] %key%",
+        "timestamp_format": "%Y-%m-%d %H:%M:%S"
+    },
+    "security": {
+        "stealth_mode": true,
+        "encrypt_logs": false
+    },
+    "debug": {
+        "enabled": false,
+        "verbose": false
+    }
+} 

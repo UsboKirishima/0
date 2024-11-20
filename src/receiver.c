@@ -1,3 +1,8 @@
+/**
+ * @file receiver.c
+ * @brief UDP receiver for keylogger data with human-readable output
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -161,7 +166,7 @@ int main(int argc, char *argv[]) {
         
         if (n < 0) {
             fprintf(stderr, "Error receiving data: %s\n", strerror(errno));
-            break; // Exit the loop on error
+            break;
         }
 
         if (n > 0) {
